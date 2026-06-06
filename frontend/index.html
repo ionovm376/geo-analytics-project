@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Geo Analytics Platform</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        #map {
+            height: 100vh;
+        }
+
+        .info-box {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .score-good {
+            color: green;
+            font-weight: bold;
+        }
+
+        .score-mid {
+            color: orange;
+            font-weight: bold;
+        }
+
+        .score-bad {
+            color: red;
+            font-weight: bold;
+        }
+
+        #legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 12px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        .legend-red { background: red; }
+        .legend-yellow { background: gold; }
+        .legend-green { background: green; }
+
+        #bestBtn,
+        #heatBtn {
+            position: absolute;
+            right: 20px;
+            z-index: 1000;
+            padding: 10px 14px;
+            border: none;
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            font-size: 14px;
+        }
+
+        #bestBtn { top: 20px; }
+        #heatBtn { top: 70px; }
+
+        #topPanel {
+            position: absolute;
+            top: 120px;
+            right: 20px;
+            width: 260px;
+            max-height: 320px;
+            overflow-y: auto;
+            z-index: 1000;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            font-size: 14px;
+        }
+
+        #topPanel h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+
+        .top-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+
+        .top-item:last-child {
+            border-bottom: none;
+        }
+
+        .top-rank {
+            font-weight: bold;
+        }
+
+        #simPanel {
+            position: absolute;
+            top: 20px;
+            left: 70px;
+            width: 300px;
+            z-index: 1000;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            font-size: 14px;
+        }
+
+        #simPanel h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+
+        #simPanel label {
+            display: block;
+            margin-top: 8px;
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+
+        #simPanel select,
+        #simPanel input,
+        #simPanel button {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 8px;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+
+        #simPanel button {
+            background: #f5f5f5;
+            cursor: pointer;
+        }
+
+        #simResult {
+            margin-top: 10px;
+            line-height: 1.6;
+        }
+
+        .sim-good {
+            color: green;
+            font-weight: bold;
+        }
+
+        .sim-mid {
+            color: orange;
+            font-weight: bold;
+        }
+
+        .sim-bad {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="simPanel">
+    <h3>Business Simulator</h3>
+    <div id="selectedPoint">Click on the map to choose a location</div>
+
+    <label for="businessType">Business type</label>
+    <select id="businessType">
+        <option value="coffee_shop">Coffee Shop</option>
+        <option value="grocery_store">Grocery Store</option>
+        <option value="pharmacy">Pharmacy</option>
+        <option value="bakery">Bakery</option>
+    </select>
+
+    <label for="budgetInput">Budget (rubles)</label>
+    <input id="budgetInput" type="number" value="3000000" min="100000" step="100000" />
+
+    <button id="simulateBtn">Calculate Business Result</button>
+
+    <div id="simResult"></div>
+</div>
+
+<div id="legend">
+    <div><span class="legend-dot legend-red"></span> Low potential</div>
+    <div><span class="legend-dot legend-yellow"></span> Medium potential</div>
+    <div><span class="legend-dot legend-green"></span> High potential</div>
+    <div><span class="legend-dot" style="background:black;"></span> Top-10 point</div>
+</div>
+
+<button id="bestBtn">Show Best Locations</button>
+<button id="heatBtn">Show Heatmap</button>
+
+<div id="topPanel">
+    <h3>Top 10 Locations</h3>
+    <div id="topList"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+<script>
+const API_URL = "http://127.0.0.1:8000";
+
+const map = L.map("map").setView([55.75, 37.6], 11);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors"
+}).addTo(map);
+
+let markers = [];
+let topMarkers = [];
+let heatLayer = null;
+let showingBestOnly = false;
+let showingHeatmap = false;
+let currentCircle = null;
+let allPoints = [];
+let selectedLat = null;
+let selectedLon = null;
+
+function getPotentialLabel(score) {
+    if (score > 0.45) return "High potential";
+    if (score > 0.20) return "Medium potential";
+    return "Low potential";
+}
+
+function getMarkerRadius(score) {
+    if (score > 0.65) return 10;
+    if (score > 0.45) return 8;
+    return 5;
+}
+
+function showAllMarkers() {
+    markers.forEach(item => item.marker.addTo(map));
+    topMarkers.forEach(marker => marker.addTo(map));
+}
+
+function hideAllMarkers() {
+    markers.forEach(item => map.removeLayer(item.marker));
+    topMarkers.forEach(marker => map.removeLayer(marker));
+}
+
+function getProfitClass(profit) {
+    if (profit > 150000) return "sim-good";
+    if (profit > 0) return "sim-mid";
+    return "sim-bad";
+}
+
+fetch(`${API_URL}/points`)
+    .then(res => res.json())
+    .then(data => {
+        allPoints = data;
+
+        data.forEach(point => {
+            const marker = L.circleMarker([point.lat, point.lon], {
+                color: point.color,
+                radius: getMarkerRadius(point.Score),
+                fillOpacity: 0.7,
+                weight: 2
+            })
+            .bindPopup(`
+                <div class="info-box">
+                    <b>Investment Score:</b> ${point.Score.toFixed(2)}<br>
+                    <b>${getPotentialLabel(point.Score)}</b><br><br>
+                    Population: ${point.P.toFixed(2)}<br>
+                    Traffic: ${point.T.toFixed(2)}<br>
+                    Competition: ${point.C.toFixed(2)}<br>
+                    Income: ${point.I.toFixed(2)}<br>
+                    Distance: ${point.D.toFixed(2)}
+                </div>
+            `)
+            .addTo(map);
+
+            markers.push({ marker, point });
+        });
+    });
+
+fetch(`${API_URL}/top_points`)
+    .then(res => res.json())
+    .then(data => {
+        const topList = document.getElementById("topList");
+
+        data.forEach((point, index) => {
+            const marker = L.circleMarker([point.lat, point.lon], {
+                color: "black",
+                radius: 12,
+                fillColor: point.color,
+                fillOpacity: 1,
+                weight: 3
+            })
+            .bindPopup(`
+                <div class="info-box">
+                    <b>TOP Location #${index + 1}</b><br><br>
+                    Score: ${point.Score.toFixed(2)}<br>
+                    Population: ${point.P.toFixed(2)}<br>
+                    Traffic: ${point.T.toFixed(2)}<br>
+                    Competition: ${point.C.toFixed(2)}
+                </div>
+            `)
+            .addTo(map);
+
+            topMarkers.push(marker);
+
+            const item = document.createElement("div");
+            item.className = "top-item";
+            item.innerHTML = `
+                <div class="top-rank">#${index + 1} — Score: ${point.Score.toFixed(2)}</div>
+                <div>Lat: ${point.lat.toFixed(4)}, Lon: ${point.lon.toFixed(4)}</div>
+                <div>${getPotentialLabel(point.Score)}</div>
+            `;
+
+            item.addEventListener("click", function () {
+                map.setView([point.lat, point.lon], 14);
+                marker.openPopup();
+            });
+
+            topList.appendChild(item);
+        });
+    });
+
+document.getElementById("bestBtn").addEventListener("click", function () {
+    showingBestOnly = !showingBestOnly;
+
+    if (showingHeatmap) return;
+
+    markers.forEach(item => {
+        if (showingBestOnly) {
+            if (item.point.Score >= 0.45) {
+                item.marker.addTo(map);
+            } else {
+                map.removeLayer(item.marker);
+            }
+        } else {
+            item.marker.addTo(map);
+        }
+    });
+
+    this.textContent = showingBestOnly ? "Show All Points" : "Show Best Locations";
+});
+
+document.getElementById("heatBtn").addEventListener("click", function () {
+    showingHeatmap = !showingHeatmap;
+
+    if (showingHeatmap) {
+        hideAllMarkers();
+
+        const heatData = allPoints
+            .filter(p => p.Score > 0.3)
+            .map(point => [point.lat, point.lon, point.Score * 2]);
+
+        heatLayer = L.heatLayer(heatData, {
+            radius: 25,
+            blur: 20,
+            maxZoom: 15
+        }).addTo(map);
+
+        this.textContent = "Hide Heatmap";
+    } else {
+        if (heatLayer) {
+            map.removeLayer(heatLayer);
+            heatLayer = null;
+        }
+
+        showAllMarkers();
+
+        if (showingBestOnly) {
+            markers.forEach(item => {
+                if (item.point.Score < 0.45) {
+                    map.removeLayer(item.marker);
+                }
+            });
+        }
+
+        this.textContent = "Show Heatmap";
+    }
+});
+
+map.on("click", function (e) {
+    selectedLat = e.latlng.lat;
+    selectedLon = e.latlng.lng;
+
+    document.getElementById("selectedPoint").innerHTML =
+        `Selected point:<br>Lat: ${selectedLat.toFixed(5)}<br>Lon: ${selectedLon.toFixed(5)}`;
+
+    if (currentCircle) {
+        map.removeLayer(currentCircle);
+    }
+
+    fetch(`${API_URL}/analyze`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            lat: selectedLat,
+            lon: selectedLon
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.message) {
+            alert(data.message);
+            return;
+        }
+
+        currentCircle = L.circle(e.latlng, {
+            radius: data.radius_m,
+            color: "blue",
+            fillOpacity: 0.1
+        }).addTo(map);
+
+        let scoreClass = "score-mid";
+        if (data.score > 0.7) scoreClass = "score-good";
+        if (data.score < 0.4) scoreClass = "score-bad";
+
+        const label = getPotentialLabel(data.score);
+
+        L.popup()
+            .setLatLng(e.latlng)
+            .setContent(`
+                <div class="info-box">
+                    <b>Geo Analysis</b><br><br>
+                    Radius: ${data.radius_m} m<br>
+                    Points in radius: ${data.points_in_radius}<br>
+                    Avg Population: ${data.avg_population}<br>
+                    Avg Traffic: ${data.avg_traffic}<br>
+                    Competitors: ${data.competitors}<br>
+                    Avg Income: ${data.avg_income}<br><br>
+                    <span class="${scoreClass}">
+                        Investment Score: ${data.score}
+                    </span><br>
+                    <b>${label}</b>
+                </div>
+            `)
+            .openOn(map);
+    });
+});
+
+document.getElementById("simulateBtn").addEventListener("click", function () {
+    if (selectedLat === null || selectedLon === null) {
+        alert("First click on the map to choose a location");
+        return;
+    }
+
+    const businessType = document.getElementById("businessType").value;
+    const budget = Number(document.getElementById("budgetInput").value);
+
+    fetch(`${API_URL}/simulate_business`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            lat: selectedLat,
+            lon: selectedLon,
+            business_type: businessType,
+            budget: budget
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.message) {
+            alert(data.message);
+            return;
+        }
+
+        const profitClass = getProfitClass(data.estimated_monthly_profit);
+
+        document.getElementById("simResult").innerHTML = `
+            <b>${data.business_name}</b><br><br>
+            Suitability score: ${data.suitability_score}<br>
+            Estimated monthly revenue: ${Math.round(data.estimated_monthly_revenue).toLocaleString()} ₽<br>
+            Estimated rent: ${Math.round(data.estimated_monthly_rent).toLocaleString()} ₽<br>
+            Estimated costs: ${Math.round(data.estimated_monthly_costs).toLocaleString()} ₽<br>
+            <span class="${profitClass}">
+                Estimated profit: ${Math.round(data.estimated_monthly_profit).toLocaleString()} ₽
+            </span><br>
+            Payback: ${data.estimated_payback_months ? data.estimated_payback_months + " months" : "No payback yet"}<br><br>
+            <b>${data.recommendation}</b>
+        `;
+    });
+});
+</script>
+
+</body>
+</html>
